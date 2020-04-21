@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *$py.class
+omniglot_resized
 
 # C extensions
 *.so
