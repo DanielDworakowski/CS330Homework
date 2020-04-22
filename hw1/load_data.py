@@ -1,8 +1,8 @@
 import numpy as np
 import os
 import random
-import tensorflow as tf
 from scipy import misc
+import debug as db
 
 
 def get_images(paths, labels, nb_samples=None, shuffle=True):
@@ -44,6 +44,14 @@ def image_file_to_array(filename, dim_input):
     return image
 
 
+def scramble(X, axis=0, inline=True):
+    """Shuffle along any axis of a tensor."""
+    if not inline:
+        X = X.copy()
+    np.apply_along_axis(np.random.shuffle, axis, X)
+    if not inline:
+        return X
+
 class DataGenerator(object):
     """
     Data Generator capable of generating batches of Omniglot data.
@@ -62,6 +70,7 @@ class DataGenerator(object):
 
         data_folder = config.get('data_folder', './omniglot_resized')
         self.img_size = config.get('img_size', (28, 28))
+        self.imnumel = self.img_size[0] * self.img_size[1]
 
         self.dim_input = np.prod(self.img_size)
         self.dim_output = self.num_classes
@@ -98,10 +107,40 @@ class DataGenerator(object):
             folders = self.metaval_character_folders
         else:
             folders = self.metatest_character_folders
-
-        #############################
-        #### YOUR CODE GOES HERE ####
-        pass
-        #############################
-
-        return all_image_batches, all_label_batches
+        #
+        # Sample class.
+        folders = np.array(folders)
+        class_idx = np.random.randint(0, len(folders), size=(batch_size * self.num_classes))
+        # selected_folders = folders.take(class_idx)
+        # labels = np.concatenate([np.arange(self.num_classes)] * batch_size, 0)
+        # sample_list = get_images(selected_folders, labels, self.num_samples_per_class, shuffle=True)
+        # label, impth = zip(*sample_list)
+        #
+        # Generate image and label tensors.
+        all_image_batches = []
+        all_label_batches_onehot = []
+        all_label_batches = []
+        for b_idx in range(batch_size):
+            labels = np.arange(self.num_classes)
+            selected_folders = folders.take(class_idx[b_idx*self.num_classes:(b_idx+1)*self.num_classes])
+            sample_list = get_images(selected_folders, labels, self.num_samples_per_class, shuffle=False)
+            sample_list = np.array(sample_list)
+            sample_list = sample_list.reshape(self.num_classes, self.num_samples_per_class,  2)
+            sample_List = scramble(sample_list, 0)
+            idx = sample_list[..., 0].astype(np.int)
+            files = sample_list[..., 1]
+            files = files.ravel()
+            task_imgs = []
+            for f in files:
+                task_imgs.append(image_file_to_array(f, self.imnumel))
+            task_imgs = np.concatenate(task_imgs, 0).reshape(self.num_samples_per_class, self.num_classes, self.imnumel)
+            all_image_batches.append(task_imgs)
+            one_hot = np.zeros([self.num_samples_per_class, self.num_classes, self.num_classes], dtype=np.float32)
+            idx = idx.T
+            np.put_along_axis(one_hot, np.expand_dims(idx, 2), 1, 2)
+            all_label_batches.append(idx)
+            all_label_batches_onehot.append(one_hot)
+        all_label_batches_onehot = np.stack(all_label_batches_onehot, 0)
+        all_label_batches = np.stack(all_label_batches, 0)
+        all_image_batches = np.stack(all_image_batches, 0)
+        return all_image_batches, all_label_batches_onehot, all_label_batches
