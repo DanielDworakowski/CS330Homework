@@ -1,9 +1,10 @@
 import numpy as np
 import os
 import random
-from scipy import misc
+from matplotlib.pyplot import imread
+import torch
 import debug as db
-
+import ImUtil
 
 def get_images(paths, labels, nb_samples=None, shuffle=True):
     """
@@ -37,9 +38,9 @@ def image_file_to_array(filename, dim_input):
     Returns:
         1 channel image
     """
-    image = misc.imread(filename)
+    image = imread(filename)
     image = image.reshape([dim_input])
-    image = image.astype(np.float32) / 255.0
+    image = image.astype(np.float32)
     image = 1.0 - image
     return image
 
@@ -123,24 +124,35 @@ class DataGenerator(object):
         for b_idx in range(batch_size):
             labels = np.arange(self.num_classes)
             selected_folders = folders.take(class_idx[b_idx*self.num_classes:(b_idx+1)*self.num_classes])
-            sample_list = get_images(selected_folders, labels, self.num_samples_per_class, shuffle=False)
-            sample_list = np.array(sample_list)
-            sample_list = sample_list.reshape(self.num_classes, self.num_samples_per_class,  2)
-            sample_List = scramble(sample_list, 0)
-            idx = sample_list[..., 0].astype(np.int)
-            files = sample_list[..., 1]
-            files = files.ravel()
+            samples = get_images(selected_folders, labels, self.num_samples_per_class, shuffle=False)
+            idx, sample_file = zip(*samples)
+            #
+            # Get the scramble indexes per sequence.
+            idx_sample = np.arange(self.num_classes).reshape(-1, 1)
+            idx_sample = np.repeat(idx_sample, self.num_samples_per_class, axis=1)
+            scramble(idx_sample)
+            sample_file = np.array(sample_file)
+            sample_file = sample_file.reshape(self.num_classes, self.num_samples_per_class)
+            idx_sample = idx_sample.T
             task_imgs = []
-            for f in files:
-                task_imgs.append(image_file_to_array(f, self.imnumel))
-            task_imgs = np.concatenate(task_imgs, 0).reshape(self.num_samples_per_class, self.num_classes, self.imnumel)
-            all_image_batches.append(task_imgs)
+            for col_idx, sample_idxr in enumerate(idx_sample):
+                for lbl in sample_idxr:
+                    f = sample_file[lbl, col_idx]
+                    # task_imgs.append(f)
+                    task_imgs.append(image_file_to_array(f, self.imnumel))
+            task_imgs = np.array(task_imgs)
+            # task_imgs = np.array(task_imgs).reshape(, self.num_classes, -1)
             one_hot = np.zeros([self.num_samples_per_class, self.num_classes, self.num_classes], dtype=np.float32)
-            idx = idx.T
-            np.put_along_axis(one_hot, np.expand_dims(idx, 2), 1, 2)
-            all_label_batches.append(idx)
+            np.put_along_axis(one_hot, np.expand_dims(idx_sample, 2), 1, 2)
+
+
+            all_image_batches.append(task_imgs)
+            all_label_batches.append(idx_sample)
             all_label_batches_onehot.append(one_hot)
         all_label_batches_onehot = np.stack(all_label_batches_onehot, 0)
         all_label_batches = np.stack(all_label_batches, 0)
         all_image_batches = np.stack(all_image_batches, 0)
+        # import torch
+        # db.printInfo(all_label_batches)
+        # ImUtil.showBatch(torch.from_numpy(all_image_batches).view(-1, 1, 28, 28), show=True)
         return all_image_batches, all_label_batches_onehot, all_label_batches
